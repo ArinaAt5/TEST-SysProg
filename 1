@@ -1,0 +1,87 @@
+import threading
+import requests
+from bs4 import BeautifulSoup
+
+BASE = "https://dental-first.ru/catalog"
+
+# товары
+products = []
+total_price = 0
+
+lock = threading.Lock()
+
+def parse(url):
+    global total_price
+
+    # скачиваем страницу
+    r = requests.get(url)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # ищем карточки товаров
+    items = soup.select(".set-card.block")
+
+    # временные списки
+    local_list = []
+    local_sum = 0
+
+    for card in items:
+        # название товара
+        name_tag = card.select_one("a.di_b.c_b")
+        if name_tag:
+            name = name_tag.get_text(strip=True)
+        else:
+            name = "NONAME"
+
+        # цена товара
+        price_tag = card.select_one(".set-card__price")
+        if price_tag:
+            price = price_tag.get_text(strip=True)
+        else:
+            price = "0"
+
+        # убираем лишнее
+        price = price.replace(" ", "").replace("₽", "")
+
+        try:
+            price = float(price)
+        except:
+            price = 0
+
+        # временный список
+        local_list.append((name, price))
+        local_sum += price
+
+    # записываем
+    with lock:
+        products.extend(local_list)
+        total_price += local_sum
+
+
+urls = [
+    BASE,
+    BASE + "?PAGEN_1=1#nav_start",
+    BASE + "?PAGEN_1=2#nav_start",
+    BASE + "?PAGEN_1=3#nav_start"
+]
+
+threads = []
+
+# запускаем потоки
+for u in urls:
+    t = threading.Thread(target=parse, args=(u,))
+    t.start()
+    threads.append(t)
+
+
+for t in threads:
+    t.join()
+
+# сохраняем в файл
+with open("result.txt", "w", encoding="utf-8") as f:
+    for name, price in products:
+        f.write(f"{name} | {price}\n")
+    f.write("\nИТОГО СТОИМОСТЬ: " + str(total_price))
+
+print("Найдено товаров:", len(products))
+print("Суммарная стоимость:", total_price)
+print("Данные записаны в result.txt")
